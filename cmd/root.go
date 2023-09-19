@@ -1,14 +1,21 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
+type AppConfig struct {
+	CfgFile string `mapstructure:"CCCE_CONFIG_FILE"`
+	ApiKey  string `mapstructure:"CCCE_CHATGPT_API_KEY"`
+}
+
+var config AppConfig
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -32,22 +39,26 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+	// Persistent flags, global for the application
+	rootCmd.PersistentFlags().StringVar(&config.CfgFile, "config", "", "config file (default is $HOME/.ccce.yaml)")
+	rootCmd.PersistentFlags().StringVar(&config.ApiKey, "api-key", "", "your ChatGPT API key")
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.ccce.yaml)")
+	// Local flags, run only when this action is called directly
+	// rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// Bind flags to Viper
+	_ = viper.BindPFlag("api-key", rootCmd.PersistentFlags().Lookup("api-key"))
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	if cfgFile != "" {
+	// Bind ENVS to Viper
+	_ = viper.BindEnv("api-key", "CCCE_CHATGPT_API_KEY")
+	viper.AutomaticEnv() // read in environment variables that match
+
+	if config.CfgFile != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
+		viper.SetConfigFile(config.CfgFile)
 	} else {
 		// Find home directory.
 		home, err := os.UserHomeDir()
@@ -59,10 +70,19 @@ func initConfig() {
 		viper.SetConfigName(".ccce")
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
-
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	if err := viper.ReadInConfig(); err != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
+			// Config file was found but another error occurred
+			log.Fatalf("Fatal error reading config file: %s \n", err)
+		}
 	}
+
+	if err := viper.Unmarshal(&config); err != nil {
+		log.Fatalf("Fatal error unmarshalling config: %s \n", err)
+	}
+
+	fmt.Printf("%+v\n", viper.AllSettings())
+	return
 }
